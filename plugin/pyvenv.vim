@@ -3,9 +3,22 @@ if exists('g:pyvenv_loaded')
 endif
 let g:pyvenv_loaded = 1
 
-command! -nargs=? -complete=dir PyvenvActivate call pyvenv#activate(<q-args>)
-command! PyvenvDeactivate call pyvenv#deactivate()
+function! s:activate(env) abort
+  return pyvenv#activate(a:env, v:cmdbang)
+endfunction
 
-if get(g:, 'pyvenv#enable_at_startup', 1)
-  call pyvenv#activate()
-endif
+function! s:deactivate() abort
+  return pyvenv#deactivate(v:cmdbang)
+endfunction
+
+
+command!
+      \ -nargs=?
+      \ -bang
+      \ -complete=customlist,pyvenv#complete
+      \ PyvenvActivate
+      \ call s:activate(<q-args>)
+command!
+      \ -bang
+      \ PyvenvDeactivate
+      \ call s:deactivate()
