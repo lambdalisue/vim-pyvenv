@@ -1,4 +1,5 @@
-let s:PREFIX = 'conda:'
+let s:Job = vital#pyvenv#import('System.Job')
+let s:envs_cache = []
 
 
 function! pyvenv#backend#conda#is_available() abort
@@ -6,90 +7,128 @@ function! pyvenv#backend#conda#is_available() abort
 endfunction
 
 function! pyvenv#backend#conda#is_activated() abort
-  if !pyvenv#backend#conda#is_available()
-    return 0
+  if pyvenv#backend#conda#is_available()
+    return !empty($CONDA_DEFAULT_ENV)
   endif
-  return !empty($CONDA_DEFAULT_ENV)
 endfunction
 
-function! pyvenv#backend#conda#envs(...) abort
-  let options = extend({
-        \ 'cache': 1,
-        \}, get(a:000, 0, {})
-        \)
+function! pyvenv#backend#conda#get(env) abort
+  let envs = pyvenv#backend#conda#envs()
+  let names = map(copy(envs), 'v:val.name')
+  let index = index(names, a:env)
+  if index == -1
+    return {}
+  endif
+  return envs[index]
+endfunction
+
+function! pyvenv#backend#conda#envs() abort
   if !pyvenv#backend#conda#is_available()
     return []
-  elseif exists('s:envs_cache') && options.cache
-    return s:envs_cache
   endif
-  let output = systemlist(printf(
-        \ '%s info -e',
-        \ g:pyvenv#backend#conda#executable,
-        \))
-  let s:envs_cache = map(
-        \ filter(output, '!empty(v:val) && v:val !~# ''^#'''),
-        \ 's:parse_env(v:val)',
-        \)
   return s:envs_cache
 endfunction
 
-function! pyvenv#backend#conda#activate(env, quiet) abort
+function! pyvenv#backend#conda#activate(env, options) abort
   if !pyvenv#backend#conda#is_available()
-    redraw | call pyvenv#console#warning(
-          \ 'Anaconda/Conda is not available.',
-          \)
     return
   endif
-  let env = get(filter(pyvenv#backend#conda#envs(), 'v:val.name ==# a:env'), 0)
-  if empty(env)
-    call pyvenv#console#warning('No conda environment "%s" is found', a:env)
-    return
-  endif
-  let $CONDA_DEFAULT_ENV = env.name
-  call pyvenv#backend#base#activate(env.path)
-  if !a:quiet
+  let env = pyvenv#backend#conda#get(a:env)
+  if !empty(env) && pyvenv#backend#base#activate(env.path)
+    let $CONDA_DEFAULT_ENV = env.name
+    if get(a:options, 'verbose')
+      redraw | call pyvenv#console#info(
+            \ 'A conda env "%s" has activated', a:env
+            \)
+    endif
+    return 1
+  elseif get(a:options, 'verbose')
     redraw | call pyvenv#console#info(
-          \ 'A conda environment "%s" has activated',
-          \ matchstr(env.name, printf('^%s\zs.*', s:PREFIX))
+          \ 'Failed to activate a conda env "%s"', a:env
           \)
   endif
-  return 1
 endfunction
 
-function! pyvenv#backend#conda#deactivate(quiet) abort
-  if !empty($CONDA_DEFAULT_ENV)
+function! pyvenv#backend#conda#deactivate(options) abort
+  if empty($CONDA_DEFAULT_ENV)
     return
   endif
-  let env = pyvenv#backend#base#deactivate($CONDA_DEFAULT_ENV)
-  if empty(env)
-    return
+  let env = pyvenv#backend#conda#get($CONDA_DEFAULT_ENV)
+  if !empty(env) && pyvenv#backend#base#deactivate(env.path)
+    let $CONDA_DEFAULT_ENV = ''
+    if get(a:options, 'verbose')
+      redraw | call pyvenv#console#info(
+            \ 'A conda env "%s" has deactivated',
+            \ env.name,
+            \)
+    endif
+    return 1
+  elseif get(a:options, 'verbose')
+    redraw | call pyvenv#console#info(
+          \ 'Failed to deactivate a conda env "%s"', $VIRTUAL_ENV
+          \)
   endif
-  let $CONDA_DEFAULT_ENV = ''
-  if !a:quiet
-    call pyvenv#console#info('Conda environment has deactivated')
-  endif
-  return 1
 endfunction
 
 function! pyvenv#backend#conda#component() abort
-  return empty($CONDA_DEFAULT_ENV) ? 'root' : $CONDA_DEFAULT_ENV
+  let name = empty($CONDA_DEFAULT_ENV) ? 'root' : $CONDA_DEFAULT_ENV
+  let env = pyvenv#backend#conda#get(name)
+  return empty(env) ? ''  : env.name
+endfunction
+
+function! pyvenv#backend#conda#init() abort
+  if exists('s:envs_job') && s:envs_job.status() == 'run'
+    return
+  endif
+  let s:envs_job = s:Job.start(
+        \ [g:pyvenv#backend#conda#executable, 'info', '-e'], {
+        \   'stdout': [],
+        \   'on_stdout': function('s:on_stdout'),
+        \   'on_exit': function('s:on_exit'),
+        \ })
 endfunction
 
 
 " Private --------------------------------------------------------------------
-function! s:parse_env(record) abort
+function! s:systemlist(...) abort
+  " NOTE: 'systemlist' does not remove trailing '\r' so use 'system' instead
+  let output = call('system', a:000)
+  return split(output, '\r\?\n')
+endfunction
+
+function! s:parse_record(record) abort
+  if empty(a:record) || a:record =~# '^#'
+    return {}
+  endif
   let name = matchstr(a:record, '^.\{-}\ze\s\+\%(\*\s\+\)\?.*$')
   let path = matchstr(a:record, '^.\{-}\s\+\%(\*\s\+\)\?\zs.*$')
+  let active = match(a:record, '^.\{-}\s\+\*\s\+\zs.*$') != -1
   return {
-        \ 'name': s:PREFIX . name,
-        \ 'path': simplify(path),
-        \ 'active': match(a:record, printf('%s\s\+\*\s\+%s$', name, path)) != -1
+        \ 'name': name,
+        \ 'path': path,
+        \ 'active': active,
         \}
 endfunction
 
+function! s:on_stdout(job, msg, event) abort dict
+  let leading = get(self.stdout, -1, '')
+  silent! call remove(self.stdout, -1)
+  call extend(self.stdout, [leading . get(a:msg, 0, '')] + a:msg[1:])
+endfunction
+
+function! s:on_exit(job, msg, event) abort dict
+  let s:envs_cache = filter(
+        \ map(self.stdout, 's:parse_record(v:val)'),
+        \ '!empty(v:val)'
+        \)
+  unlet s:envs_job
+endfunction
 
 
 " Config ---------------------------------------------------------------------
 call pyvenv#config#define('g:pyvenv#backend#conda', {
       \ 'executable': 'conda',
       \})
+
+" Init
+call pyvenv#backend#conda#init()

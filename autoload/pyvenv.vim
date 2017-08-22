@@ -1,38 +1,35 @@
-let s:CONDA_PREFIX = 'conda:'
-let s:BACKENDS = {
-      \ 'conda:': 'conda',
-      \ '': 'venv',
-      \}
-
-
 function! pyvenv#activate(env, ...) abort
+  let options = pyvenv#config#extend(a:000, {
+        \ 'verbose': 1,
+        \})
   if empty(a:env)
     return
   endif
-  let quiet = a:0 ? a:1 : 0
-  call s:deactivate(1)
-  call s:activate(a:env, quiet)
-  call pyvenv#vim#activate()
-  call s:doautocmd('Activated')
+  call pyvenv#deactivate(options)
+  if s:activate(a:env, options)
+    if !has('nvim')
+      call pyvenv#vim#activate()
+    endif
+    call pyvenv#util#doautocmd('PyvenvActivated')
+  endif
 endfunction
 
 function! pyvenv#deactivate(...) abort
-  let quiet = a:0 ? a:1 : 0
-  call s:deactivate(quiet)
-  call pyvenv#vim#deactivate()
-  call s:doautocmd('Deactivated')
-endfunction
-
-function! pyvenv#info() abort
-  echo printf('python: %s', exepath('python'))
-  echo printf('VIRTUAL_ENV: %s', $VIRTUAL_ENV)
-  echo printf('CONDA_DEFAULT_ENV: %s', $CONDA_DEFAULT_ENV)
+  let options = pyvenv#config#extend(a:000, {
+        \ 'verbose': 1,
+        \})
+  if s:deactivate(options)
+    if !has('nvim')
+      call pyvenv#vim#deativate()
+    endif
+    call pyvenv#util#doautocmd('PyvenvDeactivated')
+  endif
 endfunction
 
 function! pyvenv#component() abort
-  for backend in values(s:BACKENDS)
-    if pyvenv#backend#{backend}#is_activated()
-      return pyvenv#backend#{backend}#component()
+  for backend in g:pyvenv#backends
+    if pyvenv#backend#{backend.name}#is_activated()
+      return pyvenv#backend#{backend.name}#component()
     endif
   endfor
   return 'system'
@@ -40,39 +37,35 @@ endfunction
 
 function! pyvenv#complete(arglead, cmdline, cursorpos) abort
   let candidates = []
-  for backend in values(s:BACKENDS)
-    let candidates += map(
-          \ copy(pyvenv#backend#{backend}#envs()),
-          \ 'v:val.name',
-          \)
+  let escaped_arglead = pyvenv#util#escape_patterns(a:arglead)
+  for backend in g:pyvenv#backends
+    call extend(candidates, map(
+          \ copy(pyvenv#backend#{backend.name}#envs()),
+          \ 'backend.prefix . v:val.name',
+          \))
   endfor
-  return filter(
-        \ candidates,
-        \ 'v:val =~# ''^'' . a:arglead'
-        \)
+  return filter(candidates, 'v:val =~# ''^'' . escaped_arglead')
 endfunction
 
 
 " Private --------------------------------------------------------------------
-function! s:doautocmd(name) abort
-  execute printf('doautocmd <nomodeline> User Pyvenv%s', a:name)
-endfunction
-
-function! s:activate(env, quiet) abort
-  for [prefix, backend] in items(s:BACKENDS)
-    if !empty(prefix) && a:env =~# '^' . prefix
-      return pyvenv#backend#{backend}#activate(a:env, a:quiet)
+function! s:activate(env, options) abort
+  for backend in g:pyvenv#backends
+    let escaped_prefix = pyvenv#util#escape_patterns(backend.prefix)
+    if a:env =~# '^' . escaped_prefix
+      let env = matchstr(a:env, printf('^%s\zs.*', escaped_prefix))
+      if pyvenv#backend#{backend.name}#activate(env, a:options)
+        return 1
+      endif
     endif
   endfor
-  " Fallback to the default backend
-  let backend = s:BACKENDS['']
-  return pyvenv#backend#{backend}#activate(a:env, a:quiet)
 endfunction
 
-function! s:deactivate(quiet) abort
-  for backend in values(s:BACKENDS)
-    if pyvenv#backend#{backend}#is_activated()
-      return pyvenv#backend#{backend}#deactivate(a:quiet)
+function! s:deactivate(options) abort
+  for backend in g:pyvenv#backends
+    if pyvenv#backend#{backend.name}#is_activated()
+          \ && pyvenv#backend#{backend.name}#activate(a:options)
+      return 1
     endif
   endfor
 endfunction
@@ -81,6 +74,10 @@ endfunction
 " Config ---------------------------------------------------------------------
 call pyvenv#config#define('g:pyvenv', {
       \ 'executable': 'python',
+      \ 'backends': [
+      \   {'name': 'conda', 'prefix': 'conda:'},
+      \   {'name': 'venv', 'prefix': ''},
+      \ ]
       \})
 
 augroup pyvenv_autocmd_pseudo

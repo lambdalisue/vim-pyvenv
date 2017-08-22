@@ -8,3 +8,7 @@ function! pyvenv#config#define(prefix, default) abort
     unlet Value
   endfor
 endfunction
+
+function! pyvenv#config#extend(a, default) abort
+  return extend(a:default, get(a:a, 0, {}))
+endfunction
