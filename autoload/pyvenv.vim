@@ -7,9 +7,7 @@ function! pyvenv#activate(env, ...) abort
   endif
   call pyvenv#deactivate(options)
   if s:activate(a:env, options)
-    if !has('nvim')
-      call pyvenv#vim#activate()
-    endif
+    call pyvenv#vim#activate()
     call pyvenv#util#doautocmd('PyvenvActivated')
   endif
 endfunction
@@ -19,9 +17,7 @@ function! pyvenv#deactivate(...) abort
         \ 'verbose': 1,
         \})
   if s:deactivate(options)
-    if !has('nvim')
-      call pyvenv#vim#deativate()
-    endif
+    call pyvenv#vim#deativate()
     call pyvenv#util#doautocmd('PyvenvDeactivated')
   endif
 endfunction
@@ -64,7 +60,7 @@ endfunction
 function! s:deactivate(options) abort
   for backend in g:pyvenv#backends
     if pyvenv#backend#{backend.name}#is_activated()
-          \ && pyvenv#backend#{backend.name}#activate(a:options)
+          \ && pyvenv#backend#{backend.name}#deactivate(a:options)
       return 1
     endif
   endfor

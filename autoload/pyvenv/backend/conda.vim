@@ -1,5 +1,5 @@
 let s:Job = vital#pyvenv#import('System.Job')
-let s:envs_cache = []
+let s:envs_cache = v:null
 
 
 function! pyvenv#backend#conda#is_available() abort
@@ -26,7 +26,7 @@ function! pyvenv#backend#conda#envs() abort
   if !pyvenv#backend#conda#is_available()
     return []
   endif
-  return s:envs_cache
+  return s:envs_cache is v:null ? [] : s:envs_cache
 endfunction
 
 function! pyvenv#backend#conda#activate(env, options) abort
@@ -65,15 +65,18 @@ function! pyvenv#backend#conda#deactivate(options) abort
     return 1
   elseif get(a:options, 'verbose')
     redraw | call pyvenv#console#info(
-          \ 'Failed to deactivate a conda env "%s"', $VIRTUAL_ENV
+          \ 'Failed to deactivate a conda env "%s"', $CONDA_DEFAULT_ENV
           \)
   endif
 endfunction
 
 function! pyvenv#backend#conda#component() abort
+  if s:envs_cache is v:null
+    return 'loading...'
+  endif
   let name = empty($CONDA_DEFAULT_ENV) ? 'root' : $CONDA_DEFAULT_ENV
   let env = pyvenv#backend#conda#get(name)
-  return empty(env) ? ''  : env.name
+  return empty(env) ? '' : env.name
 endfunction
 
 function! pyvenv#backend#conda#init() abort
@@ -122,6 +125,7 @@ function! s:on_exit(job, msg, event) abort dict
         \ '!empty(v:val)'
         \)
   unlet s:envs_job
+  redraw!
 endfunction
 
 
