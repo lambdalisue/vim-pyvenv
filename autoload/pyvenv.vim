@@ -17,7 +17,7 @@ function! pyvenv#deactivate(...) abort
         \ 'verbose': 1,
         \})
   if s:deactivate(options)
-    call pyvenv#vim#deativate()
+    call pyvenv#vim#deactivate()
     call pyvenv#util#doautocmd('PyvenvDeactivated')
   endif
 endfunction

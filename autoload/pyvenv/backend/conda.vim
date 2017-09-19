@@ -1,5 +1,5 @@
 let s:Job = vital#pyvenv#import('System.Job')
-let s:envs_cache = v:null
+let s:envs_cache = []
 
 
 function! pyvenv#backend#conda#is_available() abort
@@ -25,8 +25,10 @@ endfunction
 function! pyvenv#backend#conda#envs() abort
   if !pyvenv#backend#conda#is_available()
     return []
+  elseif exists('s:envs_job') && s:envs_job.status() == 'run'
+    call s:envs_job.wait()
   endif
-  return s:envs_cache is v:null ? [] : s:envs_cache
+  return s:envs_cache
 endfunction
 
 function! pyvenv#backend#conda#activate(env, options) abort
@@ -71,7 +73,7 @@ function! pyvenv#backend#conda#deactivate(options) abort
 endfunction
 
 function! pyvenv#backend#conda#component() abort
-  if s:envs_cache is v:null
+  if exists('s:envs_job') && s:envs_job.status() == 'run'
     return 'loading...'
   endif
   let name = empty($CONDA_DEFAULT_ENV) ? 'root' : $CONDA_DEFAULT_ENV
