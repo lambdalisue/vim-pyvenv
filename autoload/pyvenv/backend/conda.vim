@@ -82,6 +82,9 @@ function! pyvenv#backend#conda#component() abort
 endfunction
 
 function! pyvenv#backend#conda#init() abort
+  if !pyvenv#backend#conda#is_available()
+    return
+  endif
   if exists('s:envs_job') && s:envs_job.status() == 'run'
     return
   endif
